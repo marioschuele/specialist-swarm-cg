@@ -117,8 +117,17 @@ def main() -> None:
         default_headers={"anthropic-beta": "managed-agents-2026-04-01"},
     )
 
-    skills = load_coordinator_skills()
-    system = COORDINATOR_SYSTEM + (VOICE_PROMPT_ADDENDUM if skills else "")
+    voice_skills = load_coordinator_skills()
+    skills = list(voice_skills)
+    # Optional docx skill: attach only when DOCX_SKILL_ID is set. Without it the
+    # coordinator may fall back to markdown instead of a real .docx.
+    docx_skill_id = os.environ.get("DOCX_SKILL_ID")
+    if docx_skill_id:
+        skills.append({"type": "custom", "skill_id": docx_skill_id, "version": "latest"})
+        print(f"DOCX_SKILL_ID set -> attaching docx skill {docx_skill_id}")
+    else:
+        print("DOCX_SKILL_ID not set -> no docx skill (markdown fallback possible).")
+    system = COORDINATOR_SYSTEM + (VOICE_PROMPT_ADDENDUM if voice_skills else "")
 
     coordinator = client.beta.agents.create(
         name="Deal Desk Senior Partner",
