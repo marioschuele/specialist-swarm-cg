@@ -71,6 +71,37 @@ fast because the RFP deadline is real.
 """
 
 
+VOICE_SKILL = "your-firm-voice"
+VOICE_PROMPT_ADDENDUM = """
+# House voice
+
+Write the final proposal in the firm's house voice. Apply the
+your-firm-voice skill to the synthesis and to the final document (not to the
+specialists' internal analysis).
+"""
+
+
+def load_coordinator_skills() -> list[dict]:
+    """Attach the firm-voice skill if it was uploaded.
+
+    Set NO_VOICE=1 to create a baseline coordinator without it
+    (used for the before/after comparison).
+    """
+    if os.environ.get("NO_VOICE") == "1":
+        print("NO_VOICE=1 -> coordinator without firm-voice skill (baseline)")
+        return []
+    skill_ids_path = Path(".skill_ids.json")
+    if not skill_ids_path.exists():
+        print("WARNING: .skill_ids.json missing - run upload_skills.py first. "
+              "Creating coordinator without firm-voice skill.")
+        return []
+    skill_id = json.loads(skill_ids_path.read_text()).get(VOICE_SKILL)
+    if not skill_id:
+        print(f"WARNING: {VOICE_SKILL} not in .skill_ids.json - skipping.")
+        return []
+    return [{"type": "custom", "skill_id": skill_id, "version": "latest"}]
+
+
 def main() -> None:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -86,11 +117,15 @@ def main() -> None:
         default_headers={"anthropic-beta": "managed-agents-2026-04-01"},
     )
 
+    skills = load_coordinator_skills()
+    system = COORDINATOR_SYSTEM + (VOICE_PROMPT_ADDENDUM if skills else "")
+
     coordinator = client.beta.agents.create(
         name="Deal Desk Senior Partner",
         model="claude-opus-4-7",  # Coordinator deserves the most capable model
-        system=COORDINATOR_SYSTEM,
+        system=system,
         tools=[{"type": "agent_toolset_20260401"}],
+        skills=skills,
         multiagent={
             "type": "coordinator",
             "agents": [
