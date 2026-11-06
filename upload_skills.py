@@ -23,6 +23,9 @@ SKILL_TO_SPECIALIST = {
     "pricing-playbook": "pricing",
     "legal-checklist":  "legal",
     "competitive-intel": "competitive",
+    # Coordinator-level skill: uploaded here, attached in create_coordinator.py
+    # (the coordinator does not exist yet when this script runs).
+    "your-firm-voice":  None,
 }
 
 
@@ -59,6 +62,8 @@ def main() -> None:
         if display_title in existing_by_title:
             skill_id = existing_by_title[display_title]
             print(f"Reusing existing skill: {skill_name} ({skill_id})")
+            print("  note: content is NOT re-uploaded; edits to SKILL.md need a new "
+                  "skill version or deleting the old skill first.")
             uploaded[skill_name] = skill_id
         else:
             print(f"Uploading skill: {skill_name}...")
@@ -68,6 +73,12 @@ def main() -> None:
             )
             uploaded[skill_name] = skill.id
             print(f"  -> {skill.id}")
+
+        # Coordinator-level skills have no specialist; create_coordinator.py
+        # reads .skill_ids.json and attaches them.
+        if specialist_key is None:
+            print("  uploaded only (attached to coordinator by create_coordinator.py)")
+            continue
 
         # 2. Attach to the matching specialist by updating its skills array
         specialist_id = specialist_ids[specialist_key]
