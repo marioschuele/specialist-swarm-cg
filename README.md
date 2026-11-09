@@ -1,17 +1,24 @@
 # Specialist Swarm — Deal Desk
 
-Multi-Agent-System auf Basis von [Claude Managed Agents](https://platform.claude.com/docs/en/managed-agents/multi-agent) mit [Custom Skills](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview). Ein Koordinator-Agent orchestriert die Erstellung einer Proposal-Response: Er liest eine eingehende RFP, verteilt die Facharbeit parallel auf vier Domänen-Spezialisten und lässt den Entwurf vor der Finalisierung von einem Reviewer-Agenten gegenprüfen.
+Eine Multi-Agent-Plattform auf Basis von [Claude Managed Agents](https://platform.claude.com/docs/en/managed-agents/multi-agent) und [Custom Skills](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview). Das System liest eine eingehende RFP, verteilt die Facharbeit parallel auf vier Domänen-Spezialisten, synthetisiert deren Ergebnisse zu einer Proposal-Response und lässt den Entwurf vor der Finalisierung von einem Reviewer-Agenten prüfen.
 
 **Plattform:** Claude Managed Agents (Multi-Agent, Beta-Header `managed-agents-2026-04-01`) und Custom Skills.
+
+## Funktionen
+
+- **Parallele Facharbeit:** Der Koordinator delegiert in einem einzigen Schritt an vier Domänen-Spezialisten, die gleichzeitig arbeiten.
+- **Domänen-Skills:** Jeder Spezialist nutzt eine eigene, versionierte Wissensbasis — Pricing-Playbook, Legal-Checkliste, Wettbewerbsdaten, Produktdokumentation.
+- **Adversarial Review:** Ein Reviewer-Agent prüft den Entwurf auf konsistente Kennzahlen, widersprüchliche Positionen zwischen den Fachbereichen und nicht belegbare Aussagen, bevor das Dokument finalisiert wird.
+- **Konfigurierbare Unternehmensstimme:** Das finale Dokument wird in einer eigenen, als Skill hinterlegten Hausstimme verfasst.
 
 ## Architektur
 
 Der Koordinator führt den Prozess in vier Schritten:
 
 1. Liest die RFP selbst und erfasst Kundenprofil, Umfang und kritische Forderungen.
-2. Delegt die Facharbeit allen vier Spezialisten in einer einzigen Nachricht — die Agent-Threads werden parallel gestartet und laufen gleichzeitig.
-3. Synthesisiert die Ergebnisse der Spezialisten zu einer Proposal-Response.
-4. Überlässt den Entwurf dem Reviewer-Agenten: Bei `SHIP IT` wird das Dokument finalisiert, bei `REVISE` werden die genannten Punkte adressiert (höchstens zwei Durchgänge), bei `STOP` wird nicht finalisiert und die Begründung gemeldet.
+2. Delegt die Facharbeit allen vier Spezialisten in einer einzigen Nachricht; die Agent-Threads werden parallel gestartet und laufen gleichzeitig.
+3. Synthetisiert die Ergebnisse der Spezialisten zu einer Proposal-Response.
+4. Überlässt den Entwurf dem Reviewer-Agenten. Bei `SHIP IT` wird das Dokument finalisiert, bei `REVISE` werden die genannten Punkte adressiert (höchstens zwei Durchgänge), bei `STOP` wird nicht finalisiert und die Begründung gemeldet.
 
 ### Komponenten
 
@@ -24,13 +31,11 @@ Der Koordinator führt den Prozess in vier Schritten:
 | Wettbewerbsanalyse | `claude-haiku-4-5-20251001` | `competitive-intel` |
 | Reviewer | `claude-opus-4-7` | — |
 
-Der Reviewer prüft den Entwurf auf konsistente Kennzahlen, widersprüchliche Positionen zwischen den Fachbereichen und nicht belegbare Aussagen, bevor das Dokument finalisiert wird.
-
 ## Voraussetzungen
 
 - Python 3.10+
 - Ein API-Key für den Zugriff auf Claude Managed Agents
-- Ein Workspace, der die Multi-Agent-Fähigkeit (Beta) nutzen kann
+- Ein Workspace mit Zugriff auf die Multi-Agent-Fähigkeit (Beta)
 
 ## Installation
 
@@ -48,7 +53,7 @@ Der API-Key wird über die Umgebungsvariable `ANTHROPIC_API_KEY` bereitgestellt.
 ./finalize.ps1
 ```
 
-Der Aufruf prüft Python und API-Key, führt die Einrichtung in der richtigen Reihenfolge aus, startet den Lauf nach Bestätigung und meldet das Ergebnis.
+Der Aufruf prüft Python und API-Key, führt die Einrichtung in der korrekten Reihenfolge aus, startet den Lauf nach Bestätigung und meldet das Ergebnis.
 
 **Schrittweise Ausführung** (Reihenfolge beachten — `upload_skills` vor `create_coordinator`):
 
@@ -67,19 +72,19 @@ python run_deal_desk.py
 | Variable | Wirkung |
 | --- | --- |
 | `ANTHROPIC_API_KEY` | API-Key (erforderlich) |
-| `NO_VOICE` | `=1` erzeugt den Koordinator ohne Hausstimme (Vergleichslauf, `snapshot_run.py`) |
-| `DOCX_SKILL_ID` | bindet eine docx-Skill an den Coordinator an, falls im Workspace vorhanden |
+| `NO_VOICE` | `=1` erzeugt den Koordinator ohne Unternehmensstimme (Vergleichslauf, `snapshot_run.py`) |
+| `DOCX_SKILL_ID` | bindet eine docx-Skill an den Koordinator an, falls im Workspace vorhanden |
 
 ## Projektstruktur
 
 ```
-├── finalize.ps1                 (Ein-Befehls-Finalisierung)
+├── finalize.ps1                 (Ein-Befehls-Ausführung)
 ├── run_direct.py                (Pipeline-Runner: setup | run)
 ├── poll_session.py              (Abfrage der Session nach Stream-Abbruch)
 ├── setup_environment.py         (Agent-Laufumgebung)
 ├── create_specialists.py        (vier Spezialisten)
 ├── upload_skills.py             (Skills hochladen und zuordnen)
-├── create_coordinator.py        (Koordinator inkl. Hausstimme und optionaler docx-Skill)
+├── create_coordinator.py        (Koordinator inkl. Unternehmensstimme und optionaler docx-Skill)
 ├── run_deal_desk.py             (Ausführung des Laufs)
 ├── stretch_critic_subagent.py   (Reviewer-Agent)
 ├── stretch_parallel_fanout.py   (explizite parallele Delegation)
