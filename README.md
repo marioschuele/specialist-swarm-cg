@@ -1,96 +1,106 @@
-# Specialist Swarm — Deal Desk Swarm
+# Specialist Swarm — Deal Desk
 
-**Ergebnis:** Multi-Agent-System aus dem Hackathon „Option 3 — Specialist Swarm" (Partner Basecamp 2026, **1. Preis**).
-**Plattform:** [Claude Managed Agents](https://platform.claude.com/docs/en/managed-agents/multi-agent), Multi-Agent (Research Preview, Beta-Header `managed-agents-2026-04-01`) + [Custom Skills](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview).
-**Szenario:** Card A — Deal Desk: eine RFP fliegt rein, eine Proposal-Response fliegt raus.
+Multi-Agent-System auf Basis von [Claude Managed Agents](https://platform.claude.com/docs/en/managed-agents/multi-agent) mit [Custom Skills](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview). Ein Koordinator-Agent orchestriert die Erstellung einer Proposal-Response: Er liest eine eingehende RFP, verteilt die Facharbeit parallel auf vier Domänen-Spezialisten und lässt den Entwurf vor der Finalisierung von einem Reviewer-Agenten gegenprüfen.
 
-## Was gebaut wurde
+**Plattform:** Claude Managed Agents (Multi-Agent, Beta-Header `managed-agents-2026-04-01`) und Custom Skills.
 
-Ein Coordinator-Agent („Senior Partner") orchestriert den kompletten Deal-Desk-Prozess:
+## Architektur
 
-1. Liest die RFP (`synthetic-data/rfp-acme-corp.md`) selbst.
-2. Delegt **allen vier Spezialisten in einer einzigen Nachricht** — explizites paralleles Fan-out (sichtbar im Event-Stream: vier Threads spawnen innerhalb von Sekunden und laufen parallel).
-3. Synthesisiert die Antworten der Spezialisten zu einer Proposal-Response.
-4. Schickt den Entwurf an den **Critic** (adversarial Review): `SHIP IT` → finalisieren; `REVISE` → Punkte adressieren (max. zwei Durchgänge); `STOP` → nicht liefern, Begründung melden.
+Der Koordinator führt den Prozess in vier Schritten:
 
-### Roster
+1. Liest die RFP selbst und erfasst Kundenprofil, Umfang und kritische Forderungen.
+2. Delegt die Facharbeit allen vier Spezialisten in einer einzigen Nachricht — die Agent-Threads werden parallel gestartet und laufen gleichzeitig.
+3. Synthesisiert die Ergebnisse der Spezialisten zu einer Proposal-Response.
+4. Überlässt den Entwurf dem Reviewer-Agenten: Bei `SHIP IT` wird das Dokument finalisiert, bei `REVISE` werden die genannten Punkte adressiert (höchstens zwei Durchgänge), bei `STOP` wird nicht finalisiert und die Begründung gemeldet.
 
-| Rolle | Modell | Skill / Wissensbasis |
+### Komponenten
+
+| Rolle | Modell | Wissensbasis (Skill) |
 | --- | --- | --- |
-| Coordinator (Senior Partner) | `claude-opus-4-7` | `your-firm-voice` (Hausstimme als Skill) |
-| Pricing Specialist | `claude-sonnet-4-6` | `pricing-playbook` |
-| Legal Reviewer | `claude-sonnet-4-6` | `legal-checklist` |
-| Technical Fit Specialist | `claude-sonnet-4-6` | `product-overview.md` (Kontext) |
-| Competitive Intel Analyst | `claude-haiku-4-5-20251001` | `competitive-intel` |
-| Critic (5. Agent, S2) | `claude-opus-4-7` | — (prüft: Zahlen, widersprüchliche Positionen, erfundene Referenzen) |
+| Koordinator | `claude-opus-4-7` | `your-firm-voice` |
+| Pricing-Spezialist | `claude-sonnet-4-6` | `pricing-playbook` |
+| Rechtsprüfung | `claude-sonnet-4-6` | `legal-checklist` |
+| Technische Passung | `claude-sonnet-4-6` | `product-overview.md` (Kontext) |
+| Wettbewerbsanalyse | `claude-haiku-4-5-20251001` | `competitive-intel` |
+| Reviewer | `claude-opus-4-7` | — |
 
-## Was der Live-Run gezeigt hat (verifiziert im Hackathon)
+Der Reviewer prüft den Entwurf auf konsistente Kennzahlen, widersprüchliche Positionen zwischen den Fachbereichen und nicht belegbare Aussagen, bevor das Dokument finalisiert wird.
 
-- **Paralleles Fan-out:** alle vier Spezialisten-Threads spawnen innerhalb von Sekunden (Event-Stream als Live-Demo).
-- **Critic-Loop:** Synthese → Review → Verdict (`SHIP IT` / `REVISE` / `STOP`).
-- **Spezialisten-Deliverables** in der Session (z. B. Pricing-Empfehlung, Legal-Review).
-- **Finaler Output:** Markdown-Synthese. Im Workspace existierte keine docx-Skill, daher landet das Dokument als strukturiertes Markdown statt als branded Word-Doc — das Word-Format ist der bekannte, offene Feinschliff.
+## Voraussetzungen
 
-## Grenzen (bewusst: Proof-of-Concept, kein Produkt)
+- Python 3.10+
+- Ein API-Key für den Zugriff auf Claude Managed Agents
+- Ein Workspace, der die Multi-Agent-Fähigkeit (Beta) nutzen kann
 
-- **Research-Preview-API:** SDK- und API-Fläche haben sich während des Hackathons geändert. Notwendig gewordene Anpassungen: `display_title` → `display_name` (Skills-Objekte), pydantic-Objekte statt Dictionaries im Coordinator-Roster, UTF-8-Handling der Windows-Konsole.
-- **Nur synthetische Daten** — keine echten Kunden- oder Projektdaten.
-- **Keine echten Systemintegrationen** (CRM/ITSM/PSA) — als nächste Ausbaustufe vorgesehen (MCP, siehe `stretch-goals.md`).
-- **Idempotenz:** `upload_skills.py`, `stretch_critic_subagent.py`, `stretch_parallel_fanout.py` sind re-run-sicher; `create_specialists.py` und `create_coordinator.py` erzeugen bei Wiederholung neue Agents (State-Dateien prüfen, nicht blind neu ausführen).
+## Installation
 
-## Setup und Execution
-
-```powershell
+```bash
 pip install -r requirements.txt
-# API-Key NUR in .env (gitignored) — nie ins Repo, nie ins Chat-Log:
-#   ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-**Ein-Befehl-Finalisierung:** `./finalize.ps1` (PowerShell) — prüft Python und Key (Wert wird nie ausgegeben), führt alle Setup-Schritte in korrekter Reihenfolge aus, startet den Deal-Run erst nach Bestätigung und prüft am Ende den Output.
+Der API-Key wird über die Umgebungsvariable `ANTHROPIC_API_KEY` bereitgestellt.
 
-**Alternativ Schritt für Schritt** (Reihenfolge ist wichtig: `upload_skills` vor `create_coordinator`):
+## Ausführung
+
+**Ein-Befehls-Ausführung (PowerShell):**
+
+```powershell
+./finalize.ps1
+```
+
+Der Aufruf prüft Python und API-Key, führt die Einrichtung in der richtigen Reihenfolge aus, startet den Lauf nach Bestätigung und meldet das Ergebnis.
+
+**Schrittweise Ausführung** (Reihenfolge beachten — `upload_skills` vor `create_coordinator`):
 
 ```bash
 python setup_environment.py
 python create_specialists.py
 python upload_skills.py
 python create_coordinator.py
-python stretch_critic_subagent.py     # S2: Critic (idempotent)
-python stretch_parallel_fanout.py     # S4: explizites Fan-out (idempotent)
-python run_deal_desk.py               # der kostenpflichtige Lauf
+python stretch_critic_subagent.py
+python stretch_parallel_fanout.py
+python run_deal_desk.py
 ```
 
-**Hinweise:**
-- `NO_VOICE=1 python create_coordinator.py` erzeugt einen Baseline-Coordinator ohne Hausstimme (Vorher-/Nachher-Vergleich, `snapshot_run.py`).
-- `DOCX_SKILL_ID=<id> python create_coordinator.py` hängt optional eine docx-Skill an den Coordinator, falls eine im Workspace existiert.
-- Läuft der Event-Stream ab (längerer SSE-Stream), der Swarm weiter: `python poll_session.py` holt die Session über kurze Aufrufe ab und lädt alle Dateien nach `outputs/`.
-- State-Dateien (`.environment_id`, `.specialist_ids.json`, `.skill_ids.json`, `.coordinator_id`, `.last_session_id`) und `outputs/` sind lokal und gitignored.
+## Konfiguration
 
-## Dateistruktur
+| Variable | Wirkung |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | API-Key (erforderlich) |
+| `NO_VOICE` | `=1` erzeugt den Koordinator ohne Hausstimme (Vergleichslauf, `snapshot_run.py`) |
+| `DOCX_SKILL_ID` | bindet eine docx-Skill an den Coordinator an, falls im Workspace vorhanden |
+
+## Projektstruktur
 
 ```
-├── README.md                    (dieses Dokument)
-├── scenario-cards.md            (Szenario-Karten A/B/C)
-├── stretch-goals.md             (Stretch-Ziele S1–S10)
-├── finalize.ps1                 (Ein-Befehl-Finalisierung)
+├── finalize.ps1                 (Ein-Befehls-Finalisierung)
 ├── run_direct.py                (Pipeline-Runner: setup | run)
-├── poll_session.py              (Session-Abfrage nach Stream-Abbruch)
-├── setup_environment.py         (Cloud-Environment, idempotent)
-├── create_specialists.py        (4 Spezialisten)
-├── upload_skills.py             (Skills hochladen + anhängen, idempotent)
-├── create_coordinator.py        (Coordinator + Voice-Skill + optional docx)
-├── run_deal_desk.py             (der Deal-Run, streamed)
-├── stretch_critic_subagent.py   (S2: Critic, idempotent)
-├── stretch_parallel_fanout.py   (S4: explizites Fan-out, idempotent)
-├── snapshot_run.py              (Vorher-/Nachher-Snapshots von outputs/)
-├── download_deliverable.py      (Dateien einer Session laden)
-├── skills/                      (Custom Skills)
+├── poll_session.py              (Abfrage der Session nach Stream-Abbruch)
+├── setup_environment.py         (Agent-Laufumgebung)
+├── create_specialists.py        (vier Spezialisten)
+├── upload_skills.py             (Skills hochladen und zuordnen)
+├── create_coordinator.py        (Koordinator inkl. Hausstimme und optionaler docx-Skill)
+├── run_deal_desk.py             (Ausführung des Laufs)
+├── stretch_critic_subagent.py   (Reviewer-Agent)
+├── stretch_parallel_fanout.py   (explizite parallele Delegation)
+├── snapshot_run.py              (Vergleichsläufe: Vorher-/Nachher-Snapshots)
+├── download_deliverable.py      (Dokumente einer Session laden)
+├── scenario-cards.md            (Szenario-Karten)
+├── stretch-goals.md             (weitere Ausbaustufen)
+├── skills/
 │   ├── pricing-playbook/SKILL.md
 │   ├── legal-checklist/SKILL.md
 │   ├── competitive-intel/SKILL.md
 │   └── your-firm-voice/SKILL.md
 └── synthetic-data/
-    ├── rfp-acme-corp.md         (RFP — der Auslöser)
-    ├── past-wins.json           (Vergleichsdeals für Pricing)
-    └── product-overview.md      (Capability Map für Technical Fit)
+    ├── rfp-acme-corp.md         (eingehende RFP)
+    ├── past-wins.json           (vergleichbare Aufträge)
+    └── product-overview.md      (Produktübersicht / Capability Map)
 ```
+
+## Hinweise
+
+- Die Ausführung erzeugt die Dokumente als strukturiertes Markdown. Für eine Word-Ausgabe wird eine docx-Skill benötigt, die über `DOCX_SKILL_ID` an den Koordinator angebunden wird.
+- `upload_skills.py`, `stretch_critic_subagent.py` und `stretch_parallel_fanout.py` sind für wiederholtes Ausführen idempotent. `create_specialists.py` und `create_coordinator.py` erzeugen bei Wiederholung neue Agenten-Instanzen; die gespeicherten IDs sollten vor einem Neuaufbau geprüft werden.
+- Bricht der Live-Event-Stream während eines längeren Laufs ab, läuft der Prozess weiter: `python poll_session.py` lädt die fertiggestellten Dokumente der Session herunter.
+- Beispielhafte Eingabedaten (RFP, Vergleichsdeals, Produktübersicht) sind im Verzeichnis `synthetic-data/` enthalten.
