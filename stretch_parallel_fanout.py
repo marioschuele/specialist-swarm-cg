@@ -47,12 +47,17 @@ def apply_parallel_fanout(client, coordinator_id):
     prompt = prompt + PARALLEL_BLOCK
     print("Parallel fan-out instruction appended to coordinator prompt.")
 
-    # Re-send the roster unchanged — the critic and any skills stay intact.
+    # Re-send the roster unchanged (normalised to dict form) — the critic and
+    # any skills stay intact.
+    agents = [
+        (a if isinstance(a, dict) else {"type": "agent", "id": getattr(a, "id", None)})
+        for a in roster
+    ]
     client.beta.agents.update(
         coordinator_id,
         version=coordinator.version,
         system=prompt,
-        multiagent={"type": "coordinator", "agents": roster},
+        multiagent={"type": "coordinator", "agents": agents},
     )
     print("Coordinator updated.")
     return True

@@ -79,6 +79,17 @@ Critic. The Critic will reply with one of: SHIP IT, REVISE, or STOP.
 """
 
 
+def _ref_id(item):
+    """Extract an agent id from a roster entry (pydantic object or dict).
+
+    The SDK returns `BetaManagedAgentsAgentReference` objects (not dicts) for
+    the coordinator roster, so read the id via getattr with a dict fallback.
+    """
+    if isinstance(item, dict):
+        return item.get("id")
+    return getattr(item, "id", None)
+
+
 def apply_critic(client, coordinator_id, specialist_ids):
     """Idempotently add the critic to the coordinator. Returns (critic_id, changed)."""
     # 1. Reuse or create the critic.
@@ -104,7 +115,7 @@ def apply_critic(client, coordinator_id, specialist_ids):
     coordinator = client.beta.agents.retrieve(coordinator_id)
     roster = list(coordinator.multiagent.agents or [])
     prompt = coordinator.system
-    current_ids = {a["id"] for a in roster}
+    current_ids = {_ref_id(a) for a in roster}
     changed = False
 
     # 2. Add to roster only if missing.
@@ -123,13 +134,15 @@ def apply_critic(client, coordinator_id, specialist_ids):
     else:
         print("Critic guidance already present (skipped).")
 
-    # 4. Persist only when something actually changed.
+    # 4. Persist only when something actually changed. Normalise every roster
+    #    entry to the dict form the API expects (avoids a mixed object/dict list).
     if changed:
+        agents = [{"type": "agent", "id": _ref_id(a)} for a in roster]
         client.beta.agents.update(
             coordinator_id,
             version=coordinator.version,
             system=prompt,
-            multiagent={"type": "coordinator", "agents": roster},
+            multiagent={"type": "coordinator", "agents": agents},
         )
         print("Coordinator updated.")
     else:

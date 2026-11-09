@@ -41,12 +41,13 @@ def main() -> None:
     client = Anthropic()
 
     # List existing custom skills so we can detect and reuse any prior uploads.
-    # Skills API enforces unique display_title, so retrying with the same title
+    # Skills API enforces a unique display name, so retrying with the same name
     # would otherwise fail. Idempotent retry is essential for hackathon dev loops.
+    # Note: the SDK exposes the name as `display_name` (not `display_title`).
     print("Checking for existing skills...")
     existing_by_title: dict[str, str] = {}
     for page in client.beta.skills.list(source="custom"):
-        existing_by_title[page.display_title] = page.id
+        existing_by_title[getattr(page, "display_name", None) or page.display_title] = page.id
 
     uploaded: dict[str, str] = {}
 
@@ -86,9 +87,12 @@ def main() -> None:
         print(f"  attaching to specialist `{specialist_key}` ({specialist_id})...")
 
         current = client.beta.agents.retrieve(specialist_id)
-        # Avoid duplicate attachment on re-run
+        # Avoid duplicate attachment on re-run. The SDK returns pydantic
+        # objects (not dicts), so read the id via getattr with a dict fallback.
         already_attached = any(
-            s.get("skill_id") == skill_id for s in (current.skills or [])
+            (getattr(s, "skill_id", None) if hasattr(s, "skill_id")
+             else (s.get("skill_id") if isinstance(s, dict) else None)) == skill_id
+            for s in (current.skills or [])
         )
         if already_attached:
             print(f"  already attached ✓ (skipping)")

@@ -1,83 +1,96 @@
-# Option 3 — Specialist Swarm
+# Specialist Swarm — Deal Desk Swarm
 
-**Concept landed:** Skills, plugins & sub-agents
-**Tech:** [Claude Managed Agents multi-agent](https://platform.claude.com/docs/en/managed-agents/multi-agent) + [custom Skills](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) + the pre-built [docx skill](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/quickstart)
-**Time:** 60 minutes
-**Output:** A coordinator agent that fans work out to 3-5 specialist sub-agents, each with its own skills, that assemble a real branded Word document.
+**Ergebnis:** Multi-Agent-System aus dem Hackathon „Option 3 — Specialist Swarm" (Partner Basecamp 2026, **1. Preis**).
+**Plattform:** [Claude Managed Agents](https://platform.claude.com/docs/en/managed-agents/multi-agent), Multi-Agent (Research Preview, Beta-Header `managed-agents-2026-04-01`) + [Custom Skills](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview).
+**Szenario:** Card A — Deal Desk: eine RFP fliegt rein, eine Proposal-Response fliegt raus.
 
-## The pitch
+## Was gebaut wurde
 
-This is the architecture that wins the next $50M transformation deal: **coordinator + specialists + skills**. It maps directly to how every services firm structures real work. A senior partner orchestrates; specialists (legal, pricing, technical) own their lanes; the senior partner synthesises and delivers.
+Ein Coordinator-Agent („Senior Partner") orchestriert den kompletten Deal-Desk-Prozess:
 
-You're going to build exactly that, in 60 minutes, around a Deal Desk scenario. Drop an RFP in, get a branded response doc out, watch the parallelism happen in real time on the events stream.
+1. Liest die RFP (`synthetic-data/rfp-acme-corp.md`) selbst.
+2. Delegt **allen vier Spezialisten in einer einzigen Nachricht** — explizites paralleles Fan-out (sichtbar im Event-Stream: vier Threads spawnen innerhalb von Sekunden und laufen parallel).
+3. Synthesisiert die Antworten der Spezialisten zu einer Proposal-Response.
+4. Schickt den Entwurf an den **Critic** (adversarial Review): `SHIP IT` → finalisieren; `REVISE` → Punkte adressieren (max. zwei Durchgänge); `STOP` → nicht liefern, Begründung melden.
 
-## Setup (5 min)
+### Roster
 
-You need a workspace API key on the Console (multi-agent is currently in research preview — your workspace may need to be granted access).
+| Rolle | Modell | Skill / Wissensbasis |
+| --- | --- | --- |
+| Coordinator (Senior Partner) | `claude-opus-4-7` | `your-firm-voice` (Hausstimme als Skill) |
+| Pricing Specialist | `claude-sonnet-4-6` | `pricing-playbook` |
+| Legal Reviewer | `claude-sonnet-4-6` | `legal-checklist` |
+| Technical Fit Specialist | `claude-sonnet-4-6` | `product-overview.md` (Kontext) |
+| Competitive Intel Analyst | `claude-haiku-4-5-20251001` | `competitive-intel` |
+| Critic (5. Agent, S2) | `claude-opus-4-7` | — (prüft: Zahlen, widersprüchliche Positionen, erfundene Referenzen) |
+
+## Was der Live-Run gezeigt hat (verifiziert im Hackathon)
+
+- **Paralleles Fan-out:** alle vier Spezialisten-Threads spawnen innerhalb von Sekunden (Event-Stream als Live-Demo).
+- **Critic-Loop:** Synthese → Review → Verdict (`SHIP IT` / `REVISE` / `STOP`).
+- **Spezialisten-Deliverables** in der Session (z. B. Pricing-Empfehlung, Legal-Review).
+- **Finaler Output:** Markdown-Synthese. Im Workspace existierte keine docx-Skill, daher landet das Dokument als strukturiertes Markdown statt als branded Word-Doc — das Word-Format ist der bekannte, offene Feinschliff.
+
+## Grenzen (bewusst: Proof-of-Concept, kein Produkt)
+
+- **Research-Preview-API:** SDK- und API-Fläche haben sich während des Hackathons geändert. Notwendig gewordene Anpassungen: `display_title` → `display_name` (Skills-Objekte), pydantic-Objekte statt Dictionaries im Coordinator-Roster, UTF-8-Handling der Windows-Konsole.
+- **Nur synthetische Daten** — keine echten Kunden- oder Projektdaten.
+- **Keine echten Systemintegrationen** (CRM/ITSM/PSA) — als nächste Ausbaustufe vorgesehen (MCP, siehe `stretch-goals.md`).
+- **Idempotenz:** `upload_skills.py`, `stretch_critic_subagent.py`, `stretch_parallel_fanout.py` sind re-run-sicher; `create_specialists.py` und `create_coordinator.py` erzeugen bei Wiederholung neue Agents (State-Dateien prüfen, nicht blind neu ausführen).
+
+## Setup und Execution
+
+```powershell
+pip install -r requirements.txt
+# API-Key NUR in .env (gitignored) — nie ins Repo, nie ins Chat-Log:
+#   ANTHROPIC_API_KEY=sk-ant-...
+```
+
+**Ein-Befehl-Finalisierung:** `./finalize.ps1` (PowerShell) — prüft Python und Key (Wert wird nie ausgegeben), führt alle Setup-Schritte in korrekter Reihenfolge aus, startet den Deal-Run erst nach Bestätigung und prüft am Ende den Output.
+
+**Alternativ Schritt für Schritt** (Reihenfolge ist wichtig: `upload_skills` vor `create_coordinator`):
 
 ```bash
-cd 03-specialist-swarm
-pip install -r requirements.txt
-export ANTHROPIC_API_KEY="sk-ant-..."
+python setup_environment.py
+python create_specialists.py
+python upload_skills.py
+python create_coordinator.py
+python stretch_critic_subagent.py     # S2: Critic (idempotent)
+python stretch_parallel_fanout.py     # S4: explizites Fan-out (idempotent)
+python run_deal_desk.py               # der kostenpflichtige Lauf
 ```
 
-## Pick a scenario card
+**Hinweise:**
+- `NO_VOICE=1 python create_coordinator.py` erzeugt einen Baseline-Coordinator ohne Hausstimme (Vorher-/Nachher-Vergleich, `snapshot_run.py`).
+- `DOCX_SKILL_ID=<id> python create_coordinator.py` hängt optional eine docx-Skill an den Coordinator, falls eine im Workspace existiert.
+- Läuft der Event-Stream ab (längerer SSE-Stream), der Swarm weiter: `python poll_session.py` holt die Session über kurze Aufrufe ab und lädt alle Dateien nach `outputs/`.
+- State-Dateien (`.environment_id`, `.specialist_ids.json`, `.skill_ids.json`, `.coordinator_id`, `.last_session_id`) und `outputs/` sind lokal und gitignored.
 
-Three cards in [`scenario-cards.md`](./scenario-cards.md). Each gives you a coordinator + a different roster of specialists. Pick one. Different teams should pick different cards.
-
-## Core build (25 min)
-
-1. **Create the specialists.** Run `python create_specialists.py`. This creates 3-4 sub-agents (Pricing, Legal, Technical Fit, Competitive) and saves their IDs to `.specialist_ids.json`.
-
-2. **Create the coordinator.** Run `python create_coordinator.py`. This creates the coordinator agent with `multiagent: coordinator` config, listing the specialists in its callable roster.
-
-3. **Upload the skills.** Run `python upload_skills.py`. This packages the custom skills in `skills/` and uploads them via the Skills API. Each specialist gets the skill that matches its domain.
-
-4. **Run the deal.** Run `python run_deal_desk.py`. This:
-   - Uploads the synthetic RFP (`synthetic-data/rfp-acme-corp.md`) as a file
-   - Starts a session against the coordinator
-   - Asks the coordinator to produce a full proposal response
-   - Streams the events so you can watch the parallel thread fan-out
-   - Saves the final docx to `outputs/proposal-response.docx`
-
-By minute 30 you have a Word document in `outputs/`, generated by a coordinator + specialists who each used their own skill.
-
-## Stretch goals (20 min)
-
-See [`stretch-goals.md`](./stretch-goals.md). The big ones:
-
-- **Custom firm-voice skill** — codify your own firm's voice (every services firm has one)
-- **Critic sub-agent** — add a fifth agent that reviews the coordinator's draft before it's finalised
-- **Memory across deals** — coordinator remembers past wins and re-uses the right ones
-- **Synthetic MCP for past wins** — wire up a fake CRM to the pricing specialist
-
-## Two-minute demo
-
-Two-monitor setup:
-- **Monitor 1:** the events stream from the coordinator session, scrolling. You'll see `session.thread_created` × 4, parallel `running`, then `agent.thread_message_received` flowing back. The visible parallelism IS the demo.
-- **Monitor 2:** open `outputs/proposal-response.docx`. Real document, branded, ready to send.
-
-Narrate the events stream while it runs. The room will get it.
-
-## What's in this folder
+## Dateistruktur
 
 ```
-03-specialist-swarm/
-├── README.md
-├── scenario-cards.md
-├── stretch-goals.md
-├── requirements.txt
-├── create_specialists.py          (creates the sub-agents)
-├── create_coordinator.py          (creates the coordinator)
-├── upload_skills.py               (uploads custom skills via Skills API)
-├── run_deal_desk.py               (runs the full swarm against an RFP)
-├── stretch_critic_subagent.py     (stretch: critic agent)
-├── skills/                        (custom skills, one per specialist)
+├── README.md                    (dieses Dokument)
+├── scenario-cards.md            (Szenario-Karten A/B/C)
+├── stretch-goals.md             (Stretch-Ziele S1–S10)
+├── finalize.ps1                 (Ein-Befehl-Finalisierung)
+├── run_direct.py                (Pipeline-Runner: setup | run)
+├── poll_session.py              (Session-Abfrage nach Stream-Abbruch)
+├── setup_environment.py         (Cloud-Environment, idempotent)
+├── create_specialists.py        (4 Spezialisten)
+├── upload_skills.py             (Skills hochladen + anhängen, idempotent)
+├── create_coordinator.py        (Coordinator + Voice-Skill + optional docx)
+├── run_deal_desk.py             (der Deal-Run, streamed)
+├── stretch_critic_subagent.py   (S2: Critic, idempotent)
+├── stretch_parallel_fanout.py   (S4: explizites Fan-out, idempotent)
+├── snapshot_run.py              (Vorher-/Nachher-Snapshots von outputs/)
+├── download_deliverable.py      (Dateien einer Session laden)
+├── skills/                      (Custom Skills)
 │   ├── pricing-playbook/SKILL.md
 │   ├── legal-checklist/SKILL.md
-│   └── competitive-intel/SKILL.md
+│   ├── competitive-intel/SKILL.md
+│   └── your-firm-voice/SKILL.md
 └── synthetic-data/
-    ├── rfp-acme-corp.md           (the RFP that triggers the swarm)
-    ├── past-wins.json             (used by pricing specialist)
-    └── product-overview.md        (used by technical specialist)
+    ├── rfp-acme-corp.md         (RFP — der Auslöser)
+    ├── past-wins.json           (Vergleichsdeals für Pricing)
+    └── product-overview.md      (Capability Map für Technical Fit)
 ```
